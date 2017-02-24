@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"runtime"
 	"strconv"
@@ -1247,6 +1248,29 @@ func TestOnEvicted(t *testing.T) {
 	}
 }
 
+func TestCacheGetAllNotExpiredItems(t *testing.T) {
+	tc := New(time.Minute*1, 0)
+	tc.Set("a", "a", DefaultExpiration)
+	tc.Set("b", "b", DefaultExpiration)
+	tc.Set("c", "c", time.Millisecond*1)
+	time.Sleep(time.Millisecond * 2)
+	allNotExpiredItems := tc.Items()
+	if len(allNotExpiredItems) != 2 {
+		t.Error("There are more or less items in the result than the two unexpired.")
+	}
+	for _, key := range []string{"a", "b"} {
+		if _, ok := tc.Get(key); !ok {
+			t.Error("Could not find unexpired item %s", key)
+		}
+	}
+	if _, ok := tc.Get("c"); ok {
+		t.Error("Found expired item c.")
+	}
+	if &allNotExpiredItems == &tc.cache.items {
+		t.Error("Returned map is equal to internal map.")
+	}
+}
+
 func TestCacheSerialization(t *testing.T) {
 	tc := New(DefaultExpiration, 0)
 	testFillAndSerialize(t, tc)
@@ -1459,7 +1483,7 @@ func BenchmarkRWMutexMapGet(b *testing.B) {
 
 func BenchmarkRWMutexInterfaceMapGetStruct(b *testing.B) {
 	b.StopTimer()
-	s := struct{name string}{name: "foo"}
+	s := struct{ name string }{name: "foo"}
 	m := map[interface{}]string{
 		s: "bar",
 	}
@@ -1674,5 +1698,20 @@ func BenchmarkDeleteExpiredLoop(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		tc.DeleteExpired()
+	}
+}
+
+func BenchmarkGetAllNotExpiredItems(b *testing.B) {
+	for i := 0; i < 20; i++ {
+		b.Run(fmt.Sprintf("BenchmarkGetAllNotExpiredItemsWith %d000 Items", i), func(b *testing.B) {
+			tc := New(20*time.Minute, 0)
+			for j := 0; j < i*1000; j++ {
+				tc.Set(strconv.Itoa(i), "bar", DefaultExpiration)
+			}
+			b.ResetTimer()
+			for j := 0; j < b.N; j++ {
+				tc.Items()
+			}
+		})
 	}
 }
